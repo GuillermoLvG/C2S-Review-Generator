@@ -87,17 +87,18 @@ def get_contexts():
     else:
         with open("resources/reviews_Movies_and_TV_5.json") as input:
             reviews = input.readlines()
-        if os.path.isfile('resources/top_20k'):
-            with open('resources/top_20k', 'rb') as input:
-                top_20k = pickle.load(input)
-            with open('resources/tokens', 'rb') as input:
-                tokens = pickle.load(input)
-        else:
-            top_20k, tokens = get_top_20k_words(reviews)
+        # if os.path.isfile('resources/top_20k'):
+        #     with open('resources/top_20k', 'rb') as input:
+        #         top_20k = pickle.load(input)
+        #     with open('resources/tokens', 'rb') as input:
+        #         tokens = pickle.load(input)
+        # else:
+        #     top_20k, tokens = get_top_20k_words(reviews)
         tokenizer = RegexpTokenizer(r'\w+')
         for n, review in enumerate(reviews):
             print(f"Review: {n}")
             review = json.loads(review)
+            print(review)
             data = set()
             text = review["reviewText"].lower()
             review_tokens = tokenizer.tokenize(text)
@@ -113,7 +114,6 @@ def get_contexts():
         df = pd.DataFrame(data, columns = ['product', 'score'])
         df.to_pickle("resources/contexts.pkl")
     return df
-
 
 def encode_contexts(data):
     print("Encoding data")
@@ -131,8 +131,6 @@ def encode_contexts(data):
     print(f"# of encoded features {encoded_data.shape[1]}")
     return encoded_data
 
-
-input_shape=(X.shape[1], X.shape[2])
 
 def create_context_decoder_model(hc, n_words, states_length, batches_size):
     print("Compiling context encoder")
@@ -156,13 +154,43 @@ def create_context_decoder_model(hc, n_words, states_length, batches_size):
     return model
 
 
-def create_context_encoding_model(n_features, n_contexts, embedding_size=100):
+
+
+
+#Decoder
+#We use the decoder_input for teaching.
+decoder_input = Input([MAX_DECODER_LENGTH,])
+embedded_decoder_input = decoder_embeddings(decoder_input) #(batch_size, max_sequence_length, embedding_size)
+decoder_lstm = LSTM(LATENT_DIM, return_state = True, return_sequences = True)
+decoder_output, h_decoder, c_decoder = decoder_lstm(embedded_decoder_input, initial_state = [h_encoder, c_encoder])
+dense = Dense(MAX_DECODER_WORDS, activation = 'softmax')
+output = dense(decoder_output)
+
+model = Model(inputs = [encoder_input, decoder_input], outputs = output)
+model.compile(optimizer = Adam(), 
+              loss = 'categorical_crossentropy', 
+              metrics = ['accuracy'])
+r = model.fit(x = [encoder_sequences_padded, decoder_sequences_input_padded], 
+          y = decoder_targets, 
+          epochs = 100, 
+          batch_size= BATCH_SIZE, validation_split = 0.2)
+
+def create_C2S_model(n_features, decoder_embedding_size=100, lstm_size=256):
     print("Compiling context encoder")
-    model = Sequential()
-    model.add(Embedding(n_features, embedding_size, input_length=n_features))
-    model.add(Flatten())
-    model.add(Dense(64, activation="tanh"))
-    model.compile('rmsprop', 'mse')
+    #ENCODER
+    encoder_input = Input([n_features,])
+    hc = Dense(64, activation="tanh")(encoder_input)
+    #DECODER
+    decoder_input = Input([MAX_REVIEW_LENGTH,])
+    embedded_decoder_input = Embedding(MAX_VOCAB, decoder_embedding_size)(decoder_input)
+    decoder_lstm = LSTM(lstm_size, return_state = True, return_sequences = True)
+    decoder_output, _, _ = decoder_lstm(embedded_decoder_input, initial_state = [hc, sos_embedding])
+    dense = Dense(MAX_VOCAB, activation = 'softmax') #  MAX_VOCAB ES UN ENTERO = 20000
+    output = dense(decoder_output)
+    model = Model(inputs = [encoder_input, decoder_input], outputs = output)
+    model.compile(optimizer = Adam(), 
+                loss = 'categorical_crossentropy', 
+                metrics = ['accuracy'])
     model.summary()
     return model
 
@@ -201,32 +229,66 @@ def generate_context_embeddings(contexts):
 # Use Concatenate para juntar input con output de cierto punto. Es decir
 # es para poner los skip conections
 
-def create_C2S_model(encoder, decoder):
-    model = keras.models.Sequential([stacked_encoder, stacked_decoder])
-    model.compile(
-        loss="binary_crossentropy",
-        optimizer=keras.optimizers.SGD(lr=1.5),
-        metrics=[rounded_accuracy]
-    )    
-    return model
+# def create_C2S_model(encoder, decoder):
+#     model = keras.models.Sequential([stacked_encoder, stacked_decoder])
+#     model.compile(
+#         loss="binary_crossentropy",
+#         optimizer=keras.optimizers.SGD(lr=1.5),
+#         metrics=[rounded_accuracy]
+#     )    
+#     return model
 
 def main():
-    contexts = get_contexts()
-    encoder = generate_context_embeddings(contexts)
+    # entonces tengo 1,500,000 reviews
+    # los parto en X_train, X_valid, X_test
+
+    
+    contexts = get_contexts() # saco contextos unicos (tuplas unicas) ya encoded ya sea con onehot o binary o whatever
+    n_features = contexts.shape[1]
+    C2S_model = create_C2S_model(n_features)
+    # CADA CONTEXTO CORRESPONDE A UN REVIEW. ES DECIR SI HAY X TUPLAS UNICAS ENTONCES TENGO X REVIEWS
+    """
+    en vez de esto, tengo que generar una lista de reviews con sos al inicio
+    y otra lista de review con eos al final
+    """
+    encoder_sentence, decoder_sentence = line.split("\t");
+    decoder_sentence_input = '<sos> ' + decoder_sentence
+    decoder_sentence_target = decoder_sentence + ' <eos>'
+    encoder_sentences.append(encoder_sentence)
+    decoder_sentences_input.append(decoder_sentence_input)
+    decoder_sentences_target.append(decoder_sentence_target)
+
+
+    decoder_sequences_input_padded = aquí tengo que hacer el preprocesamiento de los reviews 
+                            o sea lo del tokenizer con el max_vocab y el padding para los reviews
+                            que tienen sos al inicio
+    decoder_sequences_target_padded = aquí es lo mismo que arriba pero en vez de sos tiene eos al final
+
+    decoder_targets = np.zeros((len(decoder_sequences_target_padded), REVIEW_LENGTH, MAX_VOCAB))
+    for review_idx, review in enumerate(decoder_sequences_target_padded):
+        for word_idx, word_id in enumerate(review):
+            decoder_targets[review_idx, word_idx, word_id] = 1
+
+
+    r = C2S_model.fit(x = [contexts, decoder_sequences_input_padded],
+          y = decoder_targets, 
+          epochs = 20, 
+          batch_size= 128, validation_set = x_valid)
+
     # context_embeddings = generate_context_embeddings(contexts)
     # n_contexts = context_embeddings.shape[0]
     # n_features = context_embeddings.shape[1]
-    n_contexts = len(contexts)
-    n_features = 16
-    decoder = create_context_decoder_model(
-        context_embeddings,
-        n_features,
-        200,
-        n_contexts
-    )
-    C2S = create_C2S_model(encoder, decoder)
-    history = C2S.fit(X_train, X_train, epochs=20,
-                         validation_data=[X_valid, X_valid])
+    # n_contexts = len(contexts)
+    # n_features = 16
+    # decoder = create_context_decoder_model(
+    #     context_embeddings,
+    #     n_features,
+    #     200,
+    #     n_contexts
+    # )
+    # C2S = create_C2S_model(encoder, decoder)
+    # history = C2S.fit(X_train, X_train, epochs=20,
+    #                      validation_data=[X_valid, X_valid])
 
 if __name__ == '__main__':
     main()
