@@ -8,17 +8,19 @@ from nltk.tokenize import RegexpTokenizer
 from nltk.corpus import stopwords
 import numpy as np
 import json
+from operator import itemgetter
 from sklearn.preprocessing import OneHotEncoder, LabelEncoder
 from sklearn.feature_extraction import DictVectorizer
 import pandas as pd
 import os.path
 from category_encoders import BinaryEncoder
 from tensorflow.keras.layers import LayerNormalization, Dense, TimeDistributed
-from tensorflow.keras.layers import LSTM, Flatten, Embedding
+from tensorflow.keras.layers import LSTM, Flatten, Embedding, Reshape
 from tensorflow.keras.models import Sequential, Model
 from tensorflow.keras import Input
 from tensorflow.keras.preprocessing.text import Tokenizer
 from tensorflow.keras.preprocessing.sequence import pad_sequences
+import scipy.sparse as sps
 assert sys.version_info >= (3, 5)
 assert sklearn.__version__ >= "0.20"
 assert tf.__version__ >= "2.0"
@@ -33,9 +35,10 @@ tf.random.set_seed(42)
 def check_if_review_stays(review_tokens):
     stopwords_english = stopwords.words('english')
     next_review = False
-    if len(review_tokens) > 100:
+    if len(review_tokens) > 30:
         next_review = True
     return next_review
+
 
 def get_contexts_and_reviews():
     print("Getting reviews data")
@@ -45,9 +48,6 @@ def get_contexts_and_reviews():
         df = pd.read_pickle("resources/contexts.pkl")
         decoder_reviews_input = pickle.load(open("resources/d_input", "rb"))
         decoder_reviews_target = pickle.load(open("resources/d_target", "rb"))
-        print(df.shape[0])
-        print(len(decoder_reviews_input))
-        print(len(decoder_reviews_target))
     else:
         with open("resources/reviews_Movies_and_TV_5.json") as input:
             reviews = input.readlines()
@@ -89,27 +89,40 @@ def get_contexts_and_reviews():
     enc = OneHotEncoder(categorical_features=categorical_feature_mask)
     encoded_data = enc.fit_transform(df)
     print(f"# of encoded features {encoded_data.shape[1]}")
-    print(f"Example: {encoded_data.toarray()}")
+    # print(f"Example: {encoded_data.toarray()}")
     return encoded_data, decoder_reviews_input, decoder_reviews_target
+
 
 def create_C2S_model(
     n_features, sos_embedding, encoder_embedding_size=100,
-        decoder_embedding_size=100, lstm_size=256, MAX_REVIEW_LENGTH=100,
+        lstm_size=2, MAX_REVIEW_LENGTH=100,
         MAX_VOCAB=20000):
-    print("Compiling context encoder")
+    print("Compiling C2S model")
     #ENCODER
     encoder_input = Input([n_features, ])
+    print("Embedding")
     embed = Embedding(n_features, encoder_embedding_size)(encoder_input)
+    print("Flatten")
     flattened = Flatten()(embed)
-    hc = Dense(64, activation="tanh")(flattened)
+    print("Dense")
+    hc = Dense(lstm_size*lstm_size, activation="tanh")(flattened)
     # #DECODER
     decoder_input = Input([MAX_REVIEW_LENGTH, ])
+    print("Embedding")
     embedded_decoder_input = Embedding(
-        MAX_VOCAB, decoder_embedding_size)(decoder_input)
+        MAX_VOCAB, lstm_size)(decoder_input)
+    sos_embedding = embedded_decoder_input[0][1]
+    print("LSTM")
     decoder_lstm = LSTM(
-        lstm_size, return_state=True, return_sequences=True)
+        lstm_size + lstm_size, return_state=True, return_sequences=True)
+    print("Setting initial state")
+    # print(hc)
+    # print(type(hc))
+    # print(sos_embedding)
+    # print(type(sos_embedding))
     decoder_output, _, _ = decoder_lstm(
-        embedded_decoder_input, initial_state=[hc, sos_embedding])
+        embedded_decoder_input, initial_state=[hc, hc])
+    print("Dense")
     dense = Dense(MAX_VOCAB, activation='softmax')
     output = dense(decoder_output)
     model = Model(inputs=[encoder_input, decoder_input], outputs=output)
@@ -133,6 +146,7 @@ def create_C2S_model(
 #     )    
 #     return model
 
+
 def batches_generator(
     contexts, decoder_sequences_input_padded, decoder_targets, n=100):
     while True:
@@ -145,8 +159,10 @@ def batches_generator(
             target = decoder_targets[n*i:n*(i+1)]
             yield ([context, decoder_sequence], target)
 
+
 def add_padding_to_reviews(
     decoder_reviews_input, decoder_reviews_target, MAX_VOCABULARY=20000):
+    print("Adding padding to decoder inputs and targets")
     decoder_tokenizer = Tokenizer(num_words=MAX_VOCABULARY, filters = '\n')
     decoder_tokenizer.fit_on_texts(
         decoder_reviews_input + decoder_reviews_target)
@@ -158,11 +174,46 @@ def add_padding_to_reviews(
         idx: word for word, idx in decoder_tokenizer.word_index.items()
     }
     decoder_sequences_input_padded = pad_sequences(
-        decoder_sequences_input, maxlen = 100, padding = "post")
+        decoder_sequences_input, maxlen = 30, padding = "post")
     decoder_sequences_target_padded = pad_sequences(
-        decoder_sequences_target, maxlen = 100, padding = "post")
+        decoder_sequences_target, maxlen = 30, padding = "post")
     return decoder_sequences_input_padded, decoder_sequences_target_padded,\
         decoder_index2word, decoder_tokenizer.word_index
+
+
+class NDSparseMatrix:
+    def __init__(self):
+        self.elements = {}
+
+    def __getitem__(self, item):
+        if isinstance(item, slice):
+            print("SLICE")
+            print(item)
+        return self.elements[item]
+
+    def set_shape(self):
+        self.shape = self.get_shape()
+
+    def get_shape(self):
+        tuples = (self.elements.keys())
+        shape = (
+            max(tuples, key=itemgetter(1))[0],
+            max(tuples, key=itemgetter(1))[1],
+            max(tuples, key=itemgetter(1))[2]
+        )
+        return shape
+    
+    def addValue(self, tuple, value):
+        self.elements[tuple] = value
+
+    def readValue(self, tuple):
+        try:
+            value = self.elements[tuple]
+        except KeyError:
+            # could also be 0.0 if using floats...
+            value = False
+        return value
+
 
 def main():
     # entonces tengo 1,500,000 reviews
@@ -178,19 +229,31 @@ def main():
     contexts, decoder_reviews_input, decoder_reviews_target =\
         get_contexts_and_reviews()
     n_features = contexts.shape[1]
-    # print(contexts.shape[0])
-    # print(len(decoder_reviews_input))
-    # print(len(decoder_reviews_target))
     decoder_sequences_input_padded, decoder_sequences_target_padded,\
         decoder_index2word, decoder_word2index = add_padding_to_reviews(
             decoder_reviews_input, decoder_reviews_target)
 
+    print("Obtaining decoder_targets")
     decoder_targets = np.zeros(
-        (len(decoder_sequences_target_padded), 100, 20000)
+        (
+            decoder_sequences_target_padded.shape[0],
+            5000,
+            decoder_sequences_target_padded.shape[1]
+        ), dtype=bool
     )
+    print("Filling decoder_targets")
     for review_idx, review in enumerate(decoder_sequences_target_padded):
         for word_idx, word_id in enumerate(review):
             decoder_targets[review_idx, word_idx, word_id] = 1
+
+    # decoder_targets = NDSparseMatrix()
+    # print("Filling decoder_targets")
+    # for review_idx, review in enumerate(decoder_sequences_target_padded):
+    #     for word_idx, word_id in enumerate(review):
+    #         tuple = (review_idx, word_idx, word_id)
+    #         value = True
+    #         decoder_targets.addValue(tuple, value)
+    # decoder_targets.set_shape()
 
     sos_embedding = decoder_word2index['<sos>']
     C2S_model = create_C2S_model(n_features, sos_embedding)
