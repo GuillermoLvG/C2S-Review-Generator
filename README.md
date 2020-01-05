@@ -23,7 +23,11 @@ Para correr los archivos
 
     pipenv run python archivo.py
 
-Si por alguna razon llegase a salir error por no encontrar "reviews_Movies_and_TV_5.json" (QUE NO DEBERÍA), se puede descargar desde
+Si por alguna razón llegase a faltar una dependencia después de correr estos comandos (QUE NO DEBERÍA), se instala con
+
+    pipenv install dependencia
+
+Si por alguna razon llegase a salir error por no encontrar "reviews_Movies_and_TV_5.json" (QUE TAMPOCO DEBERÍA), se puede descargar desde
 http://snap.stanford.edu/data/amazon/productGraph/categoryFiles/reviews_Movies_and_TV.json.gz
 
 Se descomprime y se agrega a la carpeta "resources". No está subido aquí porque pesa mucho.
