@@ -3,17 +3,33 @@ Context-aware natural language generation for amazon movie reviews
 
 ## Sobre el uso
 Para entrenar se utilizan los archivos 
-implementacion_train.py
+implementacion_train.py y
 modificacion_train.py
 
 para predecir se usan
-implementacion_generate.py
+implementacion_generate.py y
 modificacion_generate.py
+
+Para correr los archivos
+Instalar pipenv (ambiente virtual)
+
+    pip install pipenv
+
+Para instalar dependencias
+
+    pipenv install
+    
+Para correr los archivos
+
+    pipenv run python archivo.py
 
 Si por alguna razon llegase a salir error por no encontrar "reviews_Movies_and_TV_5.json" (QUE NO DEBERÍA), se puede descargar desde
 http://snap.stanford.edu/data/amazon/productGraph/categoryFiles/reviews_Movies_and_TV.json.gz
 
 Se descomprime y se agrega a la carpeta "resources". No está subido aquí porque pesa mucho.
+
+para correr los archivos:
+
 
 ## Sobre el código:
 
