@@ -1,6 +1,7 @@
 # C2S-Review-Generator
 Context-aware natural language generation for amazon movie reviews
 
+## Sobre el uso
 Para entrenar se utilizan los archivos 
 implementacion_train.py
 modificacion_train.py
@@ -14,11 +15,6 @@ http://snap.stanford.edu/data/amazon/productGraph/categoryFiles/reviews_Movies_a
 
 Se descomprime y se agrega a la carpeta "resources". No está subido aquí porque pesa mucho.
 
-En la carpeta pesos se encuentran algunos pesos de los entrenamientos de implementación que menciono en el reporte.
-
-pesos_implementacion.hdf5 obtiene el accuracy y loss que reporto de 20 y 6 aprox.
-pesos_modificacion.hdf5 obtiene el accuracy y loss que reporto de 50 y 3 aprox.
-
 ## Sobre el código:
 
 La gran parte de las modificaciones ocurre en la función get_contexts_and_reviews() pues ahí es donde itero sobre los reviews del JSON,
@@ -28,3 +24,8 @@ El modelo está en la función create_C2S_model
 
 Todos los archivos pickle de resources son para ahorrar tiempo en el tratamiento de los datos. Nada se procesa dos veces si ya ha sido
 procesado antes.
+
+En la carpeta pesos se encuentran algunos pesos de los entrenamientos de implementación que menciono en el reporte.
+
+pesos_implementacion.hdf5 obtiene el accuracy y loss que reporto de 20 y 6 aprox.
+pesos_modificacion.hdf5 obtiene el accuracy y loss que reporto de 50 y 3 aprox.
