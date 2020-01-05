@@ -32,8 +32,6 @@ http://snap.stanford.edu/data/amazon/productGraph/categoryFiles/reviews_Movies_a
 
 Se descomprime y se agrega a la carpeta "resources". No está subido aquí porque pesa mucho.
 
-para correr los archivos:
-
 
 ## Sobre el código:
 
